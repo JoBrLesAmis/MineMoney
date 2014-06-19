@@ -1,0 +1,14 @@
+name: MineMoney
+main: fr.uxfuncraft.minemoney.MineMoney
+version: 1.0.0
+author: Pchom
+commands:
+  minemoney:
+    usage: /minemoney <command>
+    description: MineMoney by Pchom
+    aliases: [mm, mmoney]
+permissions:
+  minemoney.*:
+    description: Allow to all commands
+    default: false
+    
