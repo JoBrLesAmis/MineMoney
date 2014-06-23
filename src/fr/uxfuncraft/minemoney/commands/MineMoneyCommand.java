@@ -16,8 +16,8 @@ public class MineMoneyCommand {
 	
 	@EventHandler
 	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-		if (label.equalsIgnoreCase("minemoney") 
-				|| label.equalsIgnoreCase("mm") 
+		if (label.equalsIgnoreCase("minemoney")
+				|| label.equalsIgnoreCase("mm")
 				|| label.equalsIgnoreCase("mmoney")) {
 			if (args.length >= 1) {
 				if (args[0].equalsIgnoreCase("reload")) {
