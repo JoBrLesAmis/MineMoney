@@ -2,49 +2,54 @@ package fr.uxfuncraft.minemoney;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.logging.Level;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.logging.Logger;
 
 import net.milkbowl.vault.economy.Economy;
 
-import org.bukkit.Bukkit;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
+import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.event.EventHandler;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import fr.uxfuncraft.minemoney.commands.Commands;
-import fr.uxfuncraft.minemoney.events.BlockBreakingListener;
-import fr.uxfuncraft.minemoney.events.BlockPlacingListener;
+import fr.uxfuncraft.minemoney.commands.AddWorldBlacklistCommand;
+import fr.uxfuncraft.minemoney.commands.DisableOreCommand;
+import fr.uxfuncraft.minemoney.commands.EnableOreCommand;
+import fr.uxfuncraft.minemoney.commands.GetBlacklistedWorldsCommand;
+import fr.uxfuncraft.minemoney.commands.GetEnabledOresCommand;
+import fr.uxfuncraft.minemoney.commands.GetMoneyGivenCommand;
+import fr.uxfuncraft.minemoney.commands.MineMoneyCommand;
+import fr.uxfuncraft.minemoney.commands.ModifyMoneyGivenCommand;
+import fr.uxfuncraft.minemoney.commands.RemoveWorldBlacklistCommand;
+import fr.uxfuncraft.minemoney.events.BlockListener;
 
 public class MineMoney extends JavaPlugin {
 	
-	public Logger log;
+	public static final Logger LOGGER = Logger.getLogger("MineMoney");
 	public Economy econ;
-	public Commands cmd;
-	public BlockBreakingListener bbl;
-	public BlockPlacingListener bpl;
+	protected BlockListener bl;
+	protected File configFile;
 	public FileConfiguration config;
-	public String[] blacklist;
+	protected File langFile;
+	public FileConfiguration lang;
+	public List<World> blacklist;
+	public List<Material> blocks;
+	public List<Double> prices;
 	
 	@Override
 	public void onEnable() {
-		log = Bukkit.getLogger();
-		cmd = new Commands(this);
-		bbl = new BlockBreakingListener(this);
-		bpl = new BlockPlacingListener(this);
+		LOGGER.setParent(Logger.getGlobal());
 		
-		getServer().getPluginManager().registerEvents(bbl, this);
-		getServer().getPluginManager().registerEvents(bpl, this);
-		
+		// Enabling economy
 		if (!isEconomyEnabled()) {
-			log.log(Level.SEVERE, "[MineMoney]Vault not found !");
+			LOGGER.severe("[MineMoney]Vault or economy plugin not found !");
 			getServer().getPluginManager().disablePlugin(this);
 		}
 		
+		// Creating config
 		File configFolder = new File("plugins/minemoney");
 		if (!configFolder.exists()) {
 			configFolder.mkdir();
@@ -52,40 +57,88 @@ public class MineMoney extends JavaPlugin {
 		
 		try {
 			createConfig();
-		} catch (IOException e) {
-			e.printStackTrace();
-			log.log(Level.SEVERE, "The config file cannot be created, disabling plugin...");
-			getServer().getPluginManager().disablePlugin(this);
-		}
-		
-		try {
 			updateConfig();
+			createLang();
 		} catch (IOException e) {
 			e.printStackTrace();
-			log.log(Level.SEVERE, "Cannot update the config file, disabling plugin...");
+			LOGGER.severe("[MineMoney]Problem with the config file, disabling plugin...");
 			getServer().getPluginManager().disablePlugin(this);
 		}
 		
-		int numberOfBlacklistedWorlds = 0;
-		for (int i = 1; i < Integer.MAX_VALUE; i++) {
-			if (config.contains("blacklist." + i)) {
-				numberOfBlacklistedWorlds++;
-			} else {
-				break;
+		// Loading lists
+		
+		if (blocks == null) {
+			blocks = new LinkedList<Material>();
+			List<String> blockName = config.getStringList("list.materials");
+			if (blockName.size() > 0) {
+				for (int i = 0; i < blockName.size(); i++) {
+					blocks.add(Material.getMaterial(blockName.get(i)));
+				}
 			}
 		}
 		
-		blacklist = new String[numberOfBlacklistedWorlds];
-		
-		for (int i = 0; i < numberOfBlacklistedWorlds; i++) {
-			blacklist[i] = config.getString("blacklist." + (i + 1));
+		if (prices == null) {
+			prices = new LinkedList<Double>();
+			if (config.getDoubleList("list.prices").size() > 0) 
+				prices = config.getDoubleList("list.prices");
 		}
 		
-		for (int i = 0; i < numberOfBlacklistedWorlds; i++) {
-			log.log(Level.INFO, i + ": " + blacklist[i]);
+		if (blacklist == null) {
+			blacklist = new LinkedList<World>();
+			List<String> worldName = config.getStringList("list.blacklist");
+			if (worldName.size() > 0) {
+				for (int i = 0; i < worldName.size(); i++) {
+					blacklist.add(getServer().getWorld(worldName.get(i)));
+				}
+			}
+		}
+		
+		// Enabling commands
+		MineMoneyCommand mmc = new MineMoneyCommand(this);
+		getCommand("minemoney").setExecutor(mmc);
+		
+		EnableOreCommand eoc = new EnableOreCommand(this);
+		getCommand("enableore").setExecutor(eoc);
+		
+		DisableOreCommand doc = new DisableOreCommand(this);
+		getCommand("disableore").setExecutor(doc);
+		
+		ModifyMoneyGivenCommand mmgc = new ModifyMoneyGivenCommand(this);
+		getCommand("modifymoneygiven").setExecutor(mmgc);
+		
+		GetMoneyGivenCommand gmgc = new GetMoneyGivenCommand(this);
+		getCommand("getmoneygiven").setExecutor(gmgc);
+		
+		AddWorldBlacklistCommand awbc = new AddWorldBlacklistCommand(this);
+		getCommand("addworldblacklist").setExecutor(awbc);
+		
+		RemoveWorldBlacklistCommand rwbc = new RemoveWorldBlacklistCommand(this);
+		getCommand("removeworldblacklist").setExecutor(rwbc);
+		
+		GetBlacklistedWorldsCommand gbwc = new GetBlacklistedWorldsCommand(this);
+		getCommand("getblacklistedworlds").setExecutor(gbwc);
+		
+		GetEnabledOresCommand geoc = new GetEnabledOresCommand(this);
+		getCommand("getenabledores").setExecutor(geoc);
+		
+		// Registering Events
+		bl = new BlockListener(this);
+		getServer().getPluginManager().registerEvents(bl, this);
+		
+		// Check if config is good
+		if (blocks != null && prices != null) {
+			if (blocks.size() != prices.size()) {
+				LOGGER.severe("[MineMoney]Configuration contains errors. Disabling plugin...");
+				getServer().getPluginManager().disablePlugin(this);
+			}
+		} else {
+			if (blocks != null || prices != null) {
+				LOGGER.severe("[MineMoney] Configuration contains errors. Disabling plugin...");
+				getServer().getPluginManager().disablePlugin(this);
+			}
 		}
 	}
-	
+
 	public boolean isEconomyEnabled() {
 		if (getServer().getPluginManager().getPlugin("Vault") == null) {
 			return false;
@@ -100,110 +153,73 @@ public class MineMoney extends JavaPlugin {
 	}
 	
 	public void createConfig() throws IOException {
-		File configFile = new File("plugins/minemoney/config.yml");
+		configFile = new File("plugins/minemoney/config.yml");
 		if (!configFile.exists()) {
 			configFile.createNewFile();
 			config = YamlConfiguration.loadConfiguration(configFile);
-			config.set("Help", "You can choose if you want enable an ore or not. By default, all ores are enable.\nYou can also choose how many money will give while the ore is breaking.");
-
-			config.set("coal.enabled", true);
-			config.set("coal.moneygiven", 1.0D);
-
-			config.set("iron.enabled", true);
-			config.set("iron.moneygiven", 3.0D);
-
-			config.set("gold.enabled", true);
-			config.set("gold.moneygiven", 10.0D);
-
-			config.set("lapis.enabled", true);
-			config.set("lapis.moneygiven", 7.0D);
-
-			config.set("redstone.enabled", true);
-			config.set("redstone.moneygiven", 5.0D);
-
-			config.set("quartz.enabled", true);
-			config.set("quartz.moneygiven", 1.0D);
-
-			config.set("diamond.enabled", true);
-			config.set("diamond.moneygiven", 15.0D);
-			
-			config.set("emerald.enabled", true);
-			config.set("emerald.moneygiven", 20.0D);
-			
-			config.set("stone.enabled", true);
-			config.set("stone.moneygiven", 0.001D);
-			
-			config.set("obsidian.enabled", true);
-			config.set("obsidian.moneygiven", 25.0D);
-			
-			config.set("glowstone.enabled", true);
-			config.set("glowstone.moneygiven", 3.0D);
-			
-			config.set("mobspawner.enabled", true);
-			config.set("mobspawner.moneygiven", 40.0D);
-			
-			config.set("stonebricks.enabled", true);
-			config.set("stonebricks.moneygiven", 5.0D);
-			
-			config.set("netherbricks.enabled", true);
-			config.set("netherbricks.moneygiven", 5.0D);
-			
-			config.set("netherrack.enabled", true);
-			config.set("netherrack.moneygiven", 0.001D);
-			
-			config.set("enderstone.enabled", true);
-			config.set("enderstone.moneygiven", 0.5D);
-			
-			config.set("#Worlds", "You can blacklist as many worlds as you want. DO NOT REMOVE THIS LINE !");
-			config.set("blacklist.1", "world");
-			config.set("blacklist.2", "world_nether");
-			config.set("blacklist.3", "world_the_end");
-			
+			config.set("version", this.getDescription().getVersion());
+			config.set("lang", "en_UK");
+			config.set("list.materials", new LinkedList<String>());
+			config.set("list.prices", new LinkedList<String>());
+			config.set("list.blacklist", new LinkedList<String>());
 			config.save(configFile);
-		} else {
-			this.config = YamlConfiguration.loadConfiguration(configFile);
-		}
+		} else
+			config = YamlConfiguration.loadConfiguration(configFile);
 	}
 	
 	public void updateConfig() throws IOException {
-		File configFile = new File("plugins/minemoney/config.yml");
-		if (!configFile.exists()) {
-			log.log(Level.SEVERE, "[MineMoney]The config file doesn't exist. Disable plugin...");
-			getServer().getPluginManager().disablePlugin(this);
-		} else {
-			if (!config.contains("glowstone.enabled")) {
-				config.set("glowstone.enabled", true);
-				config.set("glowstone.moneygiven", 3.0D);
-				
-				config.set("mobspawner.enabled", true);
-				config.set("mobspawner.moneygiven", 40.0D);
-				
-				config.set("stonebricks.enabled", true);
-				config.set("stonebricks.moneygiven", 5.0D);
-				
-				config.set("netherbricks.enabled", true);
-				config.set("netherbricks.moneygiven", 5.0D);
-				
-				config.set("netherrack.enabled", true);
-				config.set("netherrack.moneygiven", 0.001D);
-				
-				config.set("enderstone.enabled", true);
-				config.set("enderstone.moneygiven", 0.5D);
-			}
-			
-			if (!config.contains("#Worlds")) {
-				config.set("#Worlds", "You can blacklist as many worlds as you want");
-				config.set("blacklist.1", "world");
-				config.set("blacklist.2", "world_nether");
-				config.set("blacklist.3", "world_the_end");
-			}
-			
-			config.save(configFile);
+		if (!config.contains("version")) {
+			configFile.delete();
+			createConfig();
 		}
 	}
-	
-	@EventHandler
-	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-		return cmd.onCommand(sender, command, label, args);
+
+	public void createLang() throws IOException {
+		langFile = new File("plugins/minemoney/" + config.getString("lang") + ".yml");
+		if (!langFile.exists()) {
+			langFile.createNewFile();
+			lang = YamlConfiguration.loadConfiguration(langFile);
+			lang.set("error.badDisableUtilisation", "Bad use ! Type /disableore <ore name>.");
+			lang.set("error.badEnableUtilisation", "Bad use ! Type /enableore <ore name> <moneyRewarded>.");
+			lang.set("error.badModifyMoneyUtilisation", "Bad use ! Type /modifymoneygiven <ore> <new money reward>.");
+			lang.set("error.badGetMoneyUtilisation", "Bad use ! Type /getmoneygiven <ore>.");
+			lang.set("error.badAddWorldBlacklistUtilisation", "Bad use ! Type /addworldblacklist <world>.");
+			lang.set("error.badRemoveWorldBlacklistUtilisation", "Bad use ! Type /removeworldblacklist <world>.");
+			lang.set("error.badGetBlacklistedWorldsUtilisation", "Bad use ! Type /getblacklistedworlds <page>.");
+			lang.set("error.badGetEnabledOresUtilisation", "Bad use ! Type /getenabledores <page>");
+			lang.set("error.oreNotEnabled", "The ore you specified isn't enabled !");
+			lang.set("error.worldNotInBlacklist", "The world you specified isn't in the blacklist !");
+			lang.set("error.oreAlreadyEnabled", "The ore you specified is already enabled !");
+			lang.set("error.worldAlreadyBlacklisted", "The world you specified is already blacklisted !");
+			lang.set("error.oreDoesntExist", "The ore you specified doesn't exist !");
+			lang.set("error.worldDoesntExist", "The world you specified doesn't exist !");
+			lang.set("error.whileDisable", "An error occurred while trying to disable ore {ORE_NAME} !");
+			lang.set("error.whileRemovingWorldBlacklist", "An error occurred while trying to remove world {WORLD_NAME} from the blacklist !");
+			lang.set("error.whileEnable", "An error occurred while trying to enable ore {ORE_NAME} !");
+			lang.set("error.whileAddingWorldBlacklist", "An error occurred while trying to add world {WORLD_NAME} in the blacklist !");
+			lang.set("error.whileModifyMoney", "An error occurred while trying to modify the money given by the ore {ORE_NAME} !");
+			lang.set("error.noPermission", "You don't have permission to do this !");
+			lang.set("error.noBlacklistedWorlds", "You don't have blacklisted world !");
+			lang.set("error.noEnabledOres", "You don't have enabled ore !");
+			lang.set("error.glowingRedstone", "GLOWING_REDSTONE_ORE already enabled ! Please remove it from the config before !");
+			lang.set("error.redstoneOre", "REDSTONE_ORE already enabled ! Please remove it from the config before !");
+			lang.set("success.reload", "Configuration reloaded !");
+			lang.set("success.disable", "Successfully disabled ore {ORE_NAME} !");
+			lang.set("success.removeWorld", "Successfully removed world {WORLD_NAME} from the blacklist !");
+			lang.set("success.enable", "Successfully enabled ore {ORE_NAME} !");
+			lang.set("success.addWorld", "Successfully added world {WORLD_NAME} to the blacklist !");
+			lang.set("success.modifyMoney", "Successfully modified money given by ore {ORE_NAME} !");
+			lang.set("information.getMoneyGiven", "The money given by {ORE_NAME} is ${MONEY_GIVEN}.");
+			lang.set("information.getWorldBlacklistedTitle", "Blacklisted worlds : (page {ACTUAL_PAGE}/{MAX_PAGE})");
+			lang.set("information.getWorldBlacklistedList", "{WORLD_NUMBER}. {WORLD_NAME}");
+			lang.set("information.getBlocksListTitle", "Enabled ores : (page {ACTUAL_PAGE}/{MAX_PAGE})");
+			lang.set("information.getBlocksList", "{ORE_NUMBER}. {ORE_NAME} -- {MONEY_REWARDED}");
+			lang.save(langFile);
+		} else
+			lang = YamlConfiguration.loadConfiguration(langFile);
+	}
+
+	public File getConfigFile() {
+		return this.configFile;
 	}
 }
